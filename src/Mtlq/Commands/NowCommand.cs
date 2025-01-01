@@ -14,14 +14,22 @@ public partial class NowCommand : BaseCommand<MediaSession[]>
         : base("now", "Get the currently playing media", MediaJsonContext.Default.MediaSessionArray)
     {
         _controller = controller;
-        this.SetHandler(() => WrapExecuteAsync(ExecuteAsync));
+        var distinctOption = new Option<bool>("--distinct", "Only return distinct media");
+        AddOption(distinctOption);
+        this.SetHandler((bool distinct) =>
+            WrapExecuteAsync(() => ExecuteAsync(distinct)),
+            distinctOption
+        );
     }
 
-    protected override async Task<MediaSession[]> ExecuteAsync()
+    protected async Task<MediaSession[]> ExecuteAsync(bool distinct)
     {
         var sessions = await _controller.GetActiveSessionsAsync();
-        return [.. sessions
-            .Where(s => s.Status == PlaybackStatus.Playing)
-            .DistinctBy(s => (s.Title, s.Artist))];
+        var playing = sessions.Where(s => s.Status == PlaybackStatus.Playing);
+        if (distinct)
+        {
+            playing = playing.DistinctBy(s => (s.Title, s.Artist));
+        }
+        return [.. playing];
     }
 }
