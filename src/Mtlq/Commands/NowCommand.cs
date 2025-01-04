@@ -16,8 +16,8 @@ public partial class NowCommand : BaseCommand<MediaSession[]>
         _controller = controller;
         var distinctOption = new Option<bool>("--distinct", "Only return distinct media");
         AddOption(distinctOption);
-        this.SetHandler((bool distinct) =>
-            WrapExecuteAsync(() => ExecuteAsync(distinct)),
+        this.SetHandler(
+            (bool distinct) => WrapExecuteAsync(() => ExecuteAsync(distinct)),
             distinctOption
         );
     }

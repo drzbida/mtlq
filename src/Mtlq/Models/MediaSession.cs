@@ -17,15 +17,14 @@ public enum PlaybackStatus
     Unknown,
     Playing,
     Paused,
-    Stopped
+    Stopped,
 }
 
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     GenerationMode = JsonSourceGenerationMode.Serialization,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+)]
 [JsonSerializable(typeof(MediaSession[]))]
-internal partial class MediaJsonContext : JsonSerializerContext
-{
-}
+internal partial class MediaJsonContext : JsonSerializerContext { }

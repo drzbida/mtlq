@@ -25,23 +25,17 @@ public abstract class BaseCommand<T>(string name, string description, JsonTypeIn
         }
     }
 
-    protected virtual Task<T> ExecuteAsync()
-            => throw new NotImplementedException("No-argument ExecuteAsync not implemented.");
+    protected virtual Task<T> ExecuteAsync() =>
+        throw new NotImplementedException("No-argument ExecuteAsync not implemented.");
 
     private void WriteResponse(T value) =>
-        Console.Out.WriteLine(
-            JsonSerializer.Serialize(value, typeInfo)
-        );
+        Console.Out.WriteLine(JsonSerializer.Serialize(value, typeInfo));
 
     private static void WriteError(Exception ex) =>
         Console.Error.WriteLine(
-                JsonSerializer.Serialize(
-                    new CommandError
-                    {
-                        Message = ex.Message,
-                        Details = ex.ToString()
-                    },
-                    ErrorJsonContext.Default.CommandError
-                ));
-
+            JsonSerializer.Serialize(
+                new CommandError { Message = ex.Message, Details = ex.ToString() },
+                ErrorJsonContext.Default.CommandError
+            )
+        );
 }
