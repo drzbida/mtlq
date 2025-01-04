@@ -1,0 +1,57 @@
+{
+    "version":"0.2.0",
+    "configurations":[
+        {
+            "name":"Launch (net8.0-windows10.0.19041.0)",
+            "type":"coreclr",
+            "request":"launch",
+            "preLaunchTask":"build (net8.0-windows10.0.19041.0)",
+            "program":"${workspaceFolder}/src/Mtlq/bin/Debug/net8.0-windows10.0.19041.0/mtlq.dll",
+            "args":[
+                "${input:selectCommand}"
+            ],
+            "cwd":"${workspaceFolder}/src/Mtlq",
+            "stopAtEntry":false,
+            "clientID":"vscode",
+            "clientName":"Visual Studio Code",
+            "columnsStartAt1":true,
+            "linesStartAt1":true,
+            "locale":"en",
+            "pathFormat":"path",
+            "externalConsole":false,
+            "console":"integratedTerminal"
+        },
+        {
+            "name":"Launch (net8.0)",
+            "type":"coreclr",
+            "request":"launch",
+            "preLaunchTask":"build (net8.0)",
+            "program":"${workspaceFolder}/src/Mtlq/bin/Debug/net8.0/mtlq.dll",
+            "args":[
+                "${input:selectCommand}"
+            ],
+            "cwd":"${workspaceFolder}/src/Mtlq",
+            "stopAtEntry":false,
+            "clientID":"vscode",
+            "clientName":"Visual Studio Code",
+            "columnsStartAt1":true,
+            "linesStartAt1":true,
+            "locale":"en",
+            "pathFormat":"path",
+            "externalConsole":false,
+            "console":"integratedTerminal"
+        }
+    ],
+    "inputs":[
+        {
+            "id":"selectCommand",
+            "type":"pickString",
+            "description":"Select a command to run",
+            "options":[
+                "now",
+                "toggle"
+            ],
+            "default":"cmd1"
+        }
+    ]
+}
