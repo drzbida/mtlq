@@ -11,9 +11,13 @@ public static class Program
     public static async Task<int> Main(string[] args)
     {
         var controller = CreatePlatformController();
-        var rootCommand = new RootCommand("Cross-platform media session CLI");
-        rootCommand.AddCommand(new NowCommand(controller));
-        rootCommand.AddCommand(new ToggleCommand(controller));
+        var rootCommand = new RootCommand("Cross-platform media session CLI")
+        {
+            new NowCommand(controller),
+            new ToggleCommand(controller),
+            new NextCommand(controller),
+            new PreviousCommand(controller),
+        };
         return await rootCommand.InvokeAsync(args);
     }
 
