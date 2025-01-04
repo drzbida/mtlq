@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Setup Windows SDK
+      uses: microsoft/setup-msbuild@v1.3.1
+      
+    - name: Install Windows SDK components
+      run: |
+        Add-WindowsCapability -Online -Name Windows.SDK.NET.Runtime.8.0-x64
+
+    - name: Build Windows
+      run: dotnet publish -c Release -f net8.0-windows10.0.19041.0 -r win-x64
+    
+    - name: Debug Directory Structure
+      run: |
+        Write-Host "Checking directory structure..."
+        Get-ChildItem -Path . -Recurse | Where-Object { $_.FullName -like "*publish*" }
+    
+    - name: Create Windows Zip
+      run: |
+        $publishDir = Get-ChildItem -Path . -Recurse -Directory | Where-Object { $_.FullName -like "*publish*" } | Select-Object -First 1
+        if ($publishDir) {
+          Write-Host "Found publish directory at: $($publishDir.FullName)"
+          Compress-Archive -Path "$($publishDir.FullName)\*" -DestinationPath mtlq-windows.zip
+        } else {
+          Write-Error "Could not find publish directory"
+          exit 1
+        }
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          mtlq-windows.zip
+          nupkg/*.nupkg
+        draft: false
+        prerelease: false
+        generate_release_notes: true
