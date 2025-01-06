@@ -23,74 +23,61 @@ public interface IDBus : IDBusObject
     Task<string[]> ListNamesAsync();
 }
 
-public class LinuxController : IMediaController
+public class LinuxController : IMediaController, IDisposable
 {
     private const string MPRIS_PREFIX = "org.mpris.MediaPlayer2.";
-    private readonly Connection _connection;
+    private readonly Lazy<Task<Connection>> _lazyConnection;
 
     public LinuxController()
     {
-        _connection = new Connection(Address.Session);
-        _connection.ConnectAsync().GetAwaiter().GetResult();
+        _lazyConnection = new Lazy<Task<Connection>>(async () =>
+        {
+            var connection = new Connection(Address.Session);
+            await connection.ConnectAsync();
+            return connection;
+        });
+    }
+
+    private async Task<Connection> GetConnectionAsync()
+    {
+        try
+        {
+            return await _lazyConnection.Value;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Failed to initialize DBus connection", ex);
+        }
     }
 
     private async Task<IEnumerable<string>> GetMediaPlayerNamesAsync()
     {
-        var dbus = _connection.CreateProxy<IDBus>("org.freedesktop.DBus", "/org/freedesktop/DBus");
+        var connection = await GetConnectionAsync();
+        var dbus = connection.CreateProxy<IDBus>("org.freedesktop.DBus", "/org/freedesktop/DBus");
         var names = await dbus.ListNamesAsync();
         return names.Where(name => name.StartsWith(MPRIS_PREFIX));
     }
 
-    private async Task<MediaSession> GetSessionInfoAsync(string playerName)
+    private static string GetMetadataValue(IDictionary<string, object> properties, string key)
     {
-        var player = _connection.CreateProxy<IMediaPlayer2Player>(
-            playerName,
-            "/org/mpris/MediaPlayer2"
-        );
-
-        var metadata = await player.GetAllAsync();
-        string playbackStatus = null;
-        if (metadata.TryGetValue("PlaybackStatus", out var status))
+        if (
+            !properties.TryGetValue("Metadata", out var value)
+            || value is not IDictionary<string, object> metadata
+            || !metadata.TryGetValue(key, out var metadataValue)
+        )
         {
-            playbackStatus = status as string;
+            return string.Empty;
         }
 
-        return new MediaSession
+        return metadataValue switch
         {
-            Source = playerName.Replace(MPRIS_PREFIX, string.Empty),
-            Title = GetMetadataValue(metadata, "Metadata", "xesam:title"),
-            Artist = GetMetadataValue(metadata, "Metadata", "xesam:artist"),
-            CurrentTime = "",
-            TotalTime = "",
-            Status = MapPlaybackStatus(playbackStatus),
+            string[] array when array.Length > 0 => array[0],
+            var val => val?.ToString() ?? string.Empty,
         };
     }
 
-    private static string GetMetadataValue(
-        IDictionary<string, object> properties,
-        string propName,
-        string key = ""
-    )
-    {
-        if (properties.TryGetValue(propName, out var value))
-        {
-            if (!string.IsNullOrEmpty(key) && value is IDictionary<string, object> metadata)
-            {
-                if (metadata.TryGetValue(key, out var metadataValue))
-                {
-                    if (metadataValue is string[] array && array.Length > 0)
-                        return array[0];
-                    return metadataValue?.ToString() ?? string.Empty;
-                }
-                return string.Empty;
-            }
-            return value?.ToString() ?? string.Empty;
-        }
-        return string.Empty;
-    }
-
     private static PlaybackStatus MapPlaybackStatus(string status) =>
-        (status ?? string.Empty).ToLower() switch
+        (status?.ToLower()) switch
         {
             "playing" => PlaybackStatus.Playing,
             "paused" => PlaybackStatus.Paused,
@@ -98,38 +85,57 @@ public class LinuxController : IMediaController
             _ => PlaybackStatus.Unknown,
         };
 
+    private async Task<MediaSession> GetSessionInfoAsync(string playerName)
+    {
+        var connection = await GetConnectionAsync();
+        var player = connection.CreateProxy<IMediaPlayer2Player>(
+            playerName,
+            "/org/mpris/MediaPlayer2"
+        );
+
+        var metadata = await player.GetAllAsync();
+        metadata.TryGetValue("PlaybackStatus", out var status);
+        var playbackStatus = status as string;
+        return new MediaSession
+        {
+            Source = playerName[MPRIS_PREFIX.Length..],
+            Title = GetMetadataValue(metadata, "xesam:title"),
+            Artist = GetMetadataValue(metadata, "xesam:artist"),
+            CurrentTime = string.Empty,
+            TotalTime = string.Empty,
+            Status = MapPlaybackStatus(playbackStatus),
+        };
+    }
+
     private async Task<(string playerName, IMediaPlayer2Player player)> GetPlayerAsync(
         string source
     )
     {
         var players = await GetMediaPlayerNamesAsync();
-        string playerName;
+        var playerName = string.IsNullOrEmpty(source)
+            ? players.FirstOrDefault()
+            : players.FirstOrDefault(p =>
+                p[MPRIS_PREFIX.Length..].Equals(source, StringComparison.OrdinalIgnoreCase)
+            );
 
-        if (string.IsNullOrEmpty(source))
+        if (playerName == null)
         {
-            playerName = players.FirstOrDefault() ?? string.Empty;
-        }
-        else
-        {
-            playerName =
-                players.FirstOrDefault(p =>
-                    p.Replace(MPRIS_PREFIX, string.Empty)
-                        .Equals(source, StringComparison.OrdinalIgnoreCase)
-                ) ?? string.Empty;
+            throw new InvalidOperationException(
+                $"No media player found{(string.IsNullOrEmpty(source) ? "" : $" for source: {source}")}"
+            );
         }
 
+        var connection = await GetConnectionAsync();
         return (
             playerName,
-            _connection.CreateProxy<IMediaPlayer2Player>(playerName, "/org/mpris/MediaPlayer2")
+            connection.CreateProxy<IMediaPlayer2Player>(playerName, "/org/mpris/MediaPlayer2")
         );
     }
 
     public async Task<MediaSession[]> GetActiveSessionsAsync()
     {
         var players = await GetMediaPlayerNamesAsync();
-        var tasks = players.Select(p => GetSessionInfoAsync(p));
-        var sessions = await Task.WhenAll(tasks);
-        return sessions;
+        return await Task.WhenAll(players.Select(GetSessionInfoAsync));
     }
 
     private async Task<MediaSession?> WaitForStateChangeAsync(
@@ -138,22 +144,21 @@ public class LinuxController : IMediaController
     )
     {
         var (playerName, player) = await GetPlayerAsync(source);
-        if (player == null)
-            return null;
-
         var initialState = await GetSessionInfoAsync(playerName);
         await action(player);
 
-        int[] delays = { 15, 30, 55 };
+        const int INTERVAL_MS = 50;
+        const int MAX_WAIT_MS = 1000;
+        const int ITERATIONS = MAX_WAIT_MS / INTERVAL_MS;
 
-        foreach (var delay in delays)
+        for (int i = 0; i < ITERATIONS; i++)
         {
-            await Task.Delay(delay);
+            await Task.Delay(INTERVAL_MS);
             var currentState = await GetSessionInfoAsync(playerName);
 
             if (
-                !string.Equals(currentState.Title, initialState.Title)
-                || !string.Equals(currentState.Artist, initialState.Artist)
+                currentState.Title != initialState.Title
+                || currentState.Artist != initialState.Artist
                 || currentState.Status != initialState.Status
             )
             {
@@ -164,13 +169,22 @@ public class LinuxController : IMediaController
         return await GetSessionInfoAsync(playerName);
     }
 
-    public async Task<MediaSession?> TogglePlaySession(string source) =>
-        await WaitForStateChangeAsync(source, player => player.PlayPauseAsync());
+    public Task<MediaSession?> TogglePlaySession(string source) =>
+        WaitForStateChangeAsync(source, player => player.PlayPauseAsync());
 
-    public async Task<MediaSession?> NextSession(string source) =>
-        await WaitForStateChangeAsync(source, player => player.NextAsync());
+    public Task<MediaSession?> NextSession(string source) =>
+        WaitForStateChangeAsync(source, player => player.NextAsync());
 
-    public async Task<MediaSession?> PreviousSession(string source) =>
-        await WaitForStateChangeAsync(source, player => player.PreviousAsync());
+    public Task<MediaSession?> PreviousSession(string source) =>
+        WaitForStateChangeAsync(source, player => player.PreviousAsync());
+
+    public async void Dispose()
+    {
+        if (_lazyConnection.IsValueCreated)
+        {
+            var connection = await _lazyConnection.Value;
+            connection.Dispose();
+        }
+    }
 }
 #endif
