@@ -6,51 +6,145 @@ on:
       - "v*.*.*"
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     permissions:
       contents: write
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+      - uses: actions/checkout@v4
 
-    - name: Setup Windows SDK
-      uses: microsoft/setup-msbuild@v1.3.1
-      
-    - name: Install Windows SDK components
-      run: |
-        Add-WindowsCapability -Online -Name Windows.SDK.NET.Runtime.8.0-x64
+      - name: Extract version from tag
+        id: version
+        shell: powershell
+        run: |
+          if ($env:GITHUB_REF -match 'refs/tags/v(.*)') {
+            Write-Output "VERSION=$($Matches[1])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            Write-Output "VERSION=0.0.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
 
-    - name: Build Windows
-      run: dotnet publish -c Release -f net8.0-windows10.0.19041.0 -r win-x64
-    
-    - name: Debug Directory Structure
-      run: |
-        Write-Host "Checking directory structure..."
-        Get-ChildItem -Path . -Recurse | Where-Object { $_.FullName -like "*publish*" }
-    
-    - name: Create Windows Zip
-      run: |
-        $publishDir = Get-ChildItem -Path . -Recurse -Directory | Where-Object { $_.FullName -like "*publish*" } | Select-Object -First 1
-        if ($publishDir) {
-          Write-Host "Found publish directory at: $($publishDir.FullName)"
-          Compress-Archive -Path "$($publishDir.FullName)\*" -DestinationPath mtlq-windows.zip
-        } else {
-          Write-Error "Could not find publish directory"
-          exit 1
-        }
-    
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          mtlq-windows.zip
-          nupkg/*.nupkg
-        draft: false
-        prerelease: false
-        generate_release_notes: true
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Windows SDK
+        uses: microsoft/setup-msbuild@v1.3.1
+
+      - name: Install Windows SDK components
+        shell: powershell
+        run: Add-WindowsCapability -Online -Name Windows.SDK.NET.Runtime.8.0-x64
+
+      - name: Build Windows
+        run: dotnet publish -c Release -f net8.0-windows10.0.19041.0 -r win-x64
+
+      - name: Create Windows Zip
+        shell: powershell
+        run: |
+          $publishDir = Get-ChildItem -Path . -Recurse -Directory | Where-Object { $_.FullName -like "*publish*" } | Select-Object -First 1
+          if ($publishDir) {
+            $zipName = "mtlq_${env:VERSION}_win-x64.zip"
+            Compress-Archive -Path "$($publishDir.FullName)\*" -DestinationPath $zipName
+            Write-Host "Created $zipName"
+          } else {
+            Write-Error "Could not find publish directory"
+            exit 1
+          }
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-artifact
+          path: mtlq_*_win-x64.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" =~ refs/tags/v(.*) ]]; then
+            echo "VERSION=${BASH_REMATCH[1]}" >> $GITHUB_ENV
+          else
+            echo "VERSION=0.0.0" >> $GITHUB_ENV
+          fi
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build Linux
+        run: dotnet publish -c Release -f net8.0 -r linux-x64
+
+      - name: Create Linux Tar
+        run: |
+          publishDir=$(find . -type d -name '*publish*' | head -1)
+          if [ -d "$publishDir" ]; then
+            tarName="mtlq_${VERSION}_linux-x64.tar.gz"
+            tar -czf "$tarName" -C "$publishDir" .
+            echo "Created $tarName"
+          else
+            echo "Could not find publish directory" >&2
+            exit 1
+          fi
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-artifact
+          path: mtlq_*_linux-x64.tar.gz
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-linux]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: windows-artifact
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: linux-artifact
+
+      - name: Calculate Checksums
+        run: |
+          # Calculate checksum for the Windows artifact
+          windows_file=$(find . -name "mtlq_*_win-x64.zip" | head -1)
+          if [ -f "$windows_file" ]; then
+            sha256sum "$windows_file" >> checksums.txt
+          else
+            echo "Windows artifact not found" >&2
+            exit 1
+          fi
+
+          # Calculate checksum for the Linux artifact
+          linux_file=$(find . -name "mtlq_*_linux-x64.tar.gz" | head -1)
+          if [ -f "$linux_file" ]; then
+            sha256sum "$linux_file" >> checksums.txt
+          else
+            echo "Linux artifact not found" >&2
+            exit 1
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            mtlq_*_win-x64.zip
+            mtlq_*_linux-x64.tar.gz
+            checksums.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
