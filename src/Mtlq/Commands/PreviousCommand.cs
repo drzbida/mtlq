@@ -27,7 +27,7 @@ public partial class PreviousCommand : BaseCommand<MediaSession>
 
     protected async Task<MediaSession> ExecuteAsync(string source)
     {
-        var session = await _controller.PreviousSession(source);
+        var session = await _controller.PreviousSessionAsync(source);
         return session == null
             ? throw new InvalidOperationException("No media session found")
             : session.Value;

@@ -248,13 +248,13 @@ public class LinuxController : IMediaController, IDisposable
         }
     }
 
-    public Task<MediaSession?> TogglePlaySession(string source) =>
+    public Task<MediaSession?> ToggleSessionAsync(string source) =>
         WaitForStateChangeAsync(source, player => player.PlayPauseAsync());
 
-    public Task<MediaSession?> NextSession(string source) =>
+    public Task<MediaSession?> NextSessionAsync(string source) =>
         WaitForStateChangeAsync(source, player => player.NextAsync());
 
-    public Task<MediaSession?> PreviousSession(string source) =>
+    public Task<MediaSession?> PreviousSessionAsync(string source) =>
         WaitForStateChangeAsync(source, player => player.PreviousAsync());
 
     public async void Dispose()

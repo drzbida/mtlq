@@ -186,7 +186,7 @@ public class WindowsController : IMediaController
         return [.. sessions.Select(s => s.ToMediaSession())];
     }
 
-    public async Task<MediaSession?> TogglePlaySession(string source)
+    public async Task<MediaSession?> ToggleSessionAsync(string source)
     {
         var session = await GetSession(source);
         if (session is null)
@@ -199,10 +199,10 @@ public class WindowsController : IMediaController
         return session.ToMediaSession();
     }
 
-    public Task<MediaSession?> NextSession(string source) =>
+    public Task<MediaSession?> NextSessionAsync(string source) =>
         SkipTrack(source, session => session.TrySkipNextAsync());
 
-    public Task<MediaSession?> PreviousSession(string source) =>
+    public Task<MediaSession?> PreviousSessionAsync(string source) =>
         SkipTrack(source, session => session.TrySkipPreviousAsync(), handleResetToStart: true);
 }
 #endif

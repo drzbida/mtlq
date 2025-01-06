@@ -7,9 +7,9 @@ public interface IMediaController
 {
     Task<MediaSession[]> GetActiveSessionsAsync();
 
-    Task<MediaSession?> TogglePlaySession(string source);
+    Task<MediaSession?> ToggleSessionAsync(string source);
 
-    Task<MediaSession?> NextSession(string source);
+    Task<MediaSession?> NextSessionAsync(string source);
 
-    Task<MediaSession?> PreviousSession(string source);
+    Task<MediaSession?> PreviousSessionAsync(string source);
 }

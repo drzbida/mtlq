@@ -27,7 +27,7 @@ public partial class ToggleCommand : BaseCommand<MediaSession>
 
     protected async Task<MediaSession> ExecuteAsync(string source)
     {
-        var session = await _controller.TogglePlaySession(source);
+        var session = await _controller.ToggleSessionAsync(source);
         return session == null
             ? throw new InvalidOperationException("No media session found")
             : session.Value;
