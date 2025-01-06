@@ -8,6 +8,12 @@ using Mtlq.Models;
 
 namespace Mtlq.Platform;
 
+public struct PropertyChanges
+{
+    public IDictionary<string, object> Changed { get; set; }
+    public string[] Invalidated { get; set; }
+}
+
 [DBusInterface("org.mpris.MediaPlayer2.Player")]
 public interface IMediaPlayer2Player : IDBusObject
 {
@@ -15,6 +21,8 @@ public interface IMediaPlayer2Player : IDBusObject
     Task NextAsync();
     Task PreviousAsync();
     Task<IDictionary<string, object>> GetAllAsync();
+
+    Task<IDisposable> WatchPropertiesAsync(Action<PropertyChanges> handler);
 }
 
 [DBusInterface("org.freedesktop.DBus")]
@@ -27,6 +35,8 @@ public class LinuxController : IMediaController, IDisposable
 {
     private const string MPRIS_PREFIX = "org.mpris.MediaPlayer2.";
     private readonly Lazy<Task<Connection>> _lazyConnection;
+    private readonly Dictionary<string, TaskCompletionSource<MediaSession>> _stateChangeSources;
+    private readonly Dictionary<string, IDisposable> _propertyWatchers;
 
     public LinuxController()
     {
@@ -36,6 +46,8 @@ public class LinuxController : IMediaController, IDisposable
             await connection.ConnectAsync();
             return connection;
         });
+        _stateChangeSources = [];
+        _propertyWatchers = [];
     }
 
     private async Task<Connection> GetConnectionAsync()
@@ -144,29 +156,40 @@ public class LinuxController : IMediaController, IDisposable
     )
     {
         var (playerName, player) = await GetPlayerAsync(source);
-        var initialState = await GetSessionInfoAsync(playerName);
-        await action(player);
+        var tcs = new TaskCompletionSource<MediaSession>();
 
-        const int INTERVAL_MS = 50;
-        const int MAX_WAIT_MS = 1000;
-        const int ITERATIONS = MAX_WAIT_MS / INTERVAL_MS;
+        _stateChangeSources[playerName] = tcs;
 
-        for (int i = 0; i < ITERATIONS; i++)
+        if (_propertyWatchers.TryGetValue(playerName, out var existingWatcher))
         {
-            await Task.Delay(INTERVAL_MS);
-            var currentState = await GetSessionInfoAsync(playerName);
-
-            if (
-                currentState.Title != initialState.Title
-                || currentState.Artist != initialState.Artist
-                || currentState.Status != initialState.Status
-            )
-            {
-                return currentState;
-            }
+            existingWatcher.Dispose();
         }
 
-        return await GetSessionInfoAsync(playerName);
+        _propertyWatchers[playerName] = await player.WatchPropertiesAsync(async changes =>
+        {
+            if (_stateChangeSources.TryGetValue(playerName, out var source))
+            {
+                var newState = await GetSessionInfoAsync(playerName);
+                source.TrySetResult(newState);
+                _stateChangeSources.Remove(playerName);
+            }
+        });
+
+        await action(player);
+
+        try
+        {
+            return await tcs.Task;
+        }
+        finally
+        {
+            if (_propertyWatchers.TryGetValue(playerName, out var watcher))
+            {
+                watcher.Dispose();
+                _propertyWatchers.Remove(playerName);
+            }
+            _stateChangeSources.Remove(playerName);
+        }
     }
 
     public Task<MediaSession?> TogglePlaySession(string source) =>
@@ -180,6 +203,12 @@ public class LinuxController : IMediaController, IDisposable
 
     public async void Dispose()
     {
+        foreach (var watcher in _propertyWatchers.Values)
+        {
+            watcher.Dispose();
+        }
+        _propertyWatchers.Clear();
+
         if (_lazyConnection.IsValueCreated)
         {
             var connection = await _lazyConnection.Value;
