@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Tmds.DBus;
 using Mtlq.Models;
+using System.Threading;
 
 namespace Mtlq.Platform;
 
@@ -97,6 +98,12 @@ public class LinuxController : IMediaController, IDisposable
             _ => PlaybackStatus.Unknown,
         };
 
+    private static string FormatTimeSpan(double microseconds)
+    {
+        var timeSpan = TimeSpan.FromMilliseconds(microseconds / 1000);
+        return $"{timeSpan:hh\\:mm\\:ss\\.ffffff}";
+    }
+
     private async Task<MediaSession> GetSessionInfoAsync(string playerName)
     {
         var connection = await GetConnectionAsync();
@@ -108,13 +115,30 @@ public class LinuxController : IMediaController, IDisposable
         var metadata = await player.GetAllAsync();
         metadata.TryGetValue("PlaybackStatus", out var status);
         var playbackStatus = status as string;
+
+        var position =
+            metadata.TryGetValue("Position", out var posValue) && posValue is long pos
+                ? FormatTimeSpan(pos)
+                : string.Empty;
+
+        var length = string.Empty;
+        if (
+            metadata.TryGetValue("Metadata", out var metaValue)
+            && metaValue is IDictionary<string, object> metadata2
+            && metadata2.TryGetValue("mpris:length", out var lengthValue)
+            && lengthValue is ulong len
+        )
+        {
+            length = FormatTimeSpan(len);
+        }
+
         return new MediaSession
         {
             Source = playerName[MPRIS_PREFIX.Length..],
             Title = GetMetadataValue(metadata, "xesam:title"),
             Artist = GetMetadataValue(metadata, "xesam:artist"),
-            CurrentTime = string.Empty,
-            TotalTime = string.Empty,
+            CurrentTime = position,
+            TotalTime = length,
             Status = MapPlaybackStatus(playbackStatus),
         };
     }
@@ -150,6 +174,19 @@ public class LinuxController : IMediaController, IDisposable
         return await Task.WhenAll(players.Select(GetSessionInfoAsync));
     }
 
+    private static string GetTrackId(IDictionary<string, object> properties)
+    {
+        if (
+            properties.TryGetValue("Metadata", out var value)
+            && value is IDictionary<string, object> metadata
+            && metadata.TryGetValue("mpris:trackid", out var trackId)
+        )
+        {
+            return trackId?.ToString() ?? string.Empty;
+        }
+        return string.Empty;
+    }
+
     private async Task<MediaSession?> WaitForStateChangeAsync(
         string source,
         Func<IMediaPlayer2Player, Task> action
@@ -157,9 +194,10 @@ public class LinuxController : IMediaController, IDisposable
     {
         var (playerName, player) = await GetPlayerAsync(source);
         var tcs = new TaskCompletionSource<MediaSession>();
+        var initialState = await player.GetAllAsync();
+        var originalTrackId = GetTrackId(initialState);
 
         _stateChangeSources[playerName] = tcs;
-
         if (_propertyWatchers.TryGetValue(playerName, out var existingWatcher))
         {
             existingWatcher.Dispose();
@@ -167,7 +205,14 @@ public class LinuxController : IMediaController, IDisposable
 
         _propertyWatchers[playerName] = await player.WatchPropertiesAsync(async changes =>
         {
-            if (_stateChangeSources.TryGetValue(playerName, out var source))
+            if (!_stateChangeSources.TryGetValue(playerName, out var source))
+            {
+                return;
+            }
+            var currentState = await player.GetAllAsync();
+            var currentTrackId = GetTrackId(currentState);
+
+            if (currentTrackId != originalTrackId)
             {
                 var newState = await GetSessionInfoAsync(playerName);
                 source.TrySetResult(newState);
@@ -179,7 +224,18 @@ public class LinuxController : IMediaController, IDisposable
 
         try
         {
-            return await tcs.Task;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            try
+            {
+                return await tcs.Task.WaitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                var secondTcs = new TaskCompletionSource<MediaSession>();
+                _stateChangeSources[playerName] = secondTcs;
+                await action(player);
+                return await secondTcs.Task;
+            }
         }
         finally
         {
