@@ -10,7 +10,7 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
-        var controller = CreatePlatformController();
+        var controller = PlatformController;
         var rootCommand = new RootCommand("Cross-platform media session CLI")
         {
             new NowCommand(controller),
@@ -21,14 +21,17 @@ public static class Program
         return await rootCommand.InvokeAsync(args);
     }
 
-    private static IMediaController CreatePlatformController()
+    private static IMediaController PlatformController
     {
+        get
+        {
 #if WINDOWS
-        return new WindowsController();
+            return new WindowsController();
 #endif
 #if LINUX
-        return new LinuxController();
+            return new LinuxController();
 #endif
-        throw new PlatformNotSupportedException("Unsupported operating system");
+            throw new PlatformNotSupportedException("Unsupported operating system");
+        }
     }
 }
