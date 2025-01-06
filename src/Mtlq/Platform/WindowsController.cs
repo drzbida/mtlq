@@ -1,3 +1,4 @@
+#if WINDOWS
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -204,3 +205,4 @@ public class WindowsController : IMediaController
     public Task<MediaSession?> PreviousSession(string source) =>
         SkipTrack(source, session => session.TrySkipPreviousAsync(), handleResetToStart: true);
 }
+#endif
