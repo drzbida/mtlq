@@ -21,8 +21,14 @@ public static class Program
         return await rootCommand.InvokeAsync(args);
     }
 
-    private static IMediaController CreatePlatformController() =>
-        OperatingSystem.IsWindows()
-            ? new WindowsController()
-            : throw new PlatformNotSupportedException("Unsupported operating system");
+    private static IMediaController CreatePlatformController()
+    {
+#if WINDOWS
+        return new WindowsController();
+#endif
+#if LINUX
+        return new LinuxController();
+#endif
+        throw new PlatformNotSupportedException("Unsupported operating system");
+    }
 }
