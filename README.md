@@ -10,19 +10,6 @@
 - **Linux: D-Bus + MPRIS2**  
   D-Bus is a system that lets applications communicate with each other, and MPRIS2 is a standard built on top of it to control media players and access their metadata.
 
-
-## ✨ Installation
-
-### Windows
-```powershell
-# TODO
-```
-
-### Linux
-```bash
-TODO
-```
-
 ## 🚀 Usage
 
 ```bash
@@ -65,6 +52,30 @@ $ mtlq previous session spotify | jq
   "status": 1
 }
 ```
+
+## ✨ Installation
+
+### Windows
+#### Install
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/drzbida/mtlq/main/scripts/install.ps1 | iex"
+```
+#### Uninstall
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/drzbida/mtlq/main/scripts/uninstall.ps1 | iex"
+```
+
+### Linux
+#### Install
+```bash
+curl -sSL https://raw.githubusercontent.com/drzbida/mtlq/main/scripts/install.sh | bash
+```
+#### Uninstall
+```bash
+curl -sSL https://raw.githubusercontent.com/drzbida/mtlq/main/scripts/uninstall.sh | bash
+```
+
+Alternatively, you can download the files manually from the Releases page.
 
 ## ⚡ Compatibility
 
